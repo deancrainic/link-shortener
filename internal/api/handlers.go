@@ -114,3 +114,29 @@ func (s *Server) handleLinkDetails(w http.ResponseWriter, r *http.Request) {
 
 	writeJSON(w, http.StatusOK, resp)
 }
+
+func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.NotFound(w, r)
+		return
+	}
+
+	if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/" {
+		http.NotFound(w, r)
+		return
+	}
+
+	code := strings.Trim(strings.TrimPrefix(r.URL.Path, "/"), "/")
+	if code == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	link, ok := s.store.Get(code)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	http.Redirect(w, r, link.OriginalURL, http.StatusFound)
+}

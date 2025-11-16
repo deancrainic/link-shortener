@@ -34,5 +34,6 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("/api/shorten", s.handleShorten)
 	mux.HandleFunc("/api/links", s.handleListLinks)
 	mux.HandleFunc("/api/links/", s.handleLinkDetails)
+	mux.HandleFunc("/", s.handleRedirect)
 	return jsonMiddleware(mux)
 }
