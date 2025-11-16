@@ -32,5 +32,7 @@ func NewServer(cfg Config) *Server {
 func (s *Server) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/shorten", s.handleShorten)
+	mux.HandleFunc("/api/links", s.handleListLinks)
+	mux.HandleFunc("/api/links/", s.handleLinkDetails)
 	return jsonMiddleware(mux)
 }

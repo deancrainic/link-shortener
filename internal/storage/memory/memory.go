@@ -36,3 +36,14 @@ func (s *Store) Get(code string) (*model.Link, bool) {
 	link, ok := s.links[code]
 	return link, ok
 }
+
+func (s *Store) List() []*model.Link {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	items := make([]*model.Link, 0, len(s.links))
+	for _, link := range s.links {
+		items = append(items, link)
+	}
+	return items
+}

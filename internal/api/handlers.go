@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"link-shortener/internal/model"
@@ -60,4 +61,56 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 		ShortURL:    shortURL,
 		OriginalURL: originalURL,
 	})
+}
+
+func (s *Server) handleListLinks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	links := s.store.List()
+	items := make([]linkOverview, 0, len(links))
+	for _, link := range links {
+		items = append(items, linkOverview{
+			Code:        link.Code,
+			OriginalURL: link.OriginalURL,
+			CreatedAt:   link.CreatedAt,
+		})
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (s *Server) handleLinkDetails(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	if !strings.HasPrefix(r.URL.Path, "/api/links/") {
+		http.NotFound(w, r)
+		return
+	}
+
+	code := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/links/"), "/")
+	if code == "" {
+		http.NotFound(w, r)
+		return
+	}
+
+	link, ok := s.store.Get(code)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+
+	shortURL := fmt.Sprintf("%s/%s", s.baseURL, link.Code)
+	resp := linkDetailsResponse{
+		Code:        link.Code,
+		ShortURL:    shortURL,
+		OriginalURL: link.OriginalURL,
+		CreatedAt:   link.CreatedAt,
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
