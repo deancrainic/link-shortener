@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -56,10 +57,17 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 	}
 
 	shortURL := fmt.Sprintf("%s/%s", s.baseURL, code)
+	qrData, err := generateQRCodeDataURL(shortURL)
+	if err != nil {
+		http.Error(w, "failed to generate QR code", http.StatusInternalServerError)
+		return
+	}
+
 	writeJSON(w, http.StatusCreated, shortenResponse{
 		Code:        code,
 		ShortURL:    shortURL,
 		OriginalURL: originalURL,
+		QRCode:      qrData,
 	})
 }
 
@@ -73,9 +81,11 @@ func (s *Server) handleListLinks(w http.ResponseWriter, r *http.Request) {
 	items := make([]linkOverview, 0, len(links))
 	for _, link := range links {
 		items = append(items, linkOverview{
-			Code:        link.Code,
-			OriginalURL: link.OriginalURL,
-			CreatedAt:   link.CreatedAt,
+			Code:           link.Code,
+			OriginalURL:    link.OriginalURL,
+			CreatedAt:      link.CreatedAt,
+			TotalClicks:    len(link.Clicks),
+			UniqueVisitors: len(link.UniqueIPs),
 		})
 	}
 	writeJSON(w, http.StatusOK, items)
@@ -92,26 +102,21 @@ func (s *Server) handleLinkDetails(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	code := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/links/"), "/")
+	code := strings.TrimPrefix(r.URL.Path, "/api/links/")
 	if code == "" {
 		http.NotFound(w, r)
 		return
 	}
-
 	link, ok := s.store.Get(code)
 	if !ok {
 		http.NotFound(w, r)
 		return
 	}
-
-	shortURL := fmt.Sprintf("%s/%s", s.baseURL, link.Code)
-	resp := linkDetailsResponse{
-		Code:        link.Code,
-		ShortURL:    shortURL,
-		OriginalURL: link.OriginalURL,
-		CreatedAt:   link.CreatedAt,
+	resp, err := buildLinkDetails(link, s.baseURL)
+	if err != nil {
+		http.Error(w, "failed to build link response", http.StatusInternalServerError)
+		return
 	}
-
 	writeJSON(w, http.StatusOK, resp)
 }
 
@@ -138,5 +143,49 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	ip := clientIP(r)
+	click := model.Click{
+		Timestamp: time.Now().UTC(),
+		IP:        ip,
+		Country:   detectCountry(ip),
+		UserAgent: r.UserAgent(),
+	}
+
+	if _, err := s.store.RecordClick(code, click); err != nil && !errors.Is(err, storage.ErrNotFound) {
+		log.Printf("failed to record click for %s: %v", code, err)
+	}
+
 	http.Redirect(w, r, link.OriginalURL, http.StatusFound)
+}
+
+func buildLinkDetails(link *model.Link, baseURL string) (linkDetailsResponse, error) {
+	shortURL := fmt.Sprintf("%s/%s", baseURL, link.Code)
+	var lastAccessed *time.Time
+	if n := len(link.Clicks); n > 0 {
+		t := link.Clicks[n-1].Timestamp
+		lastAccessed = &t
+	}
+	countryCounts := make(map[string]int)
+	for _, click := range link.Clicks {
+		country := click.Country
+		if country == "" {
+			country = "Unknown"
+		}
+		countryCounts[country]++
+	}
+	qr, err := generateQRCodeDataURL(shortURL)
+	if err != nil {
+		return linkDetailsResponse{}, err
+	}
+	return linkDetailsResponse{
+		Code:           link.Code,
+		ShortURL:       shortURL,
+		OriginalURL:    link.OriginalURL,
+		CreatedAt:      link.CreatedAt,
+		TotalClicks:    len(link.Clicks),
+		UniqueVisitors: len(link.UniqueIPs),
+		LastAccessed:   lastAccessed,
+		CountryCounts:  countryCounts,
+		QRCode:         qr,
+	}, nil
 }

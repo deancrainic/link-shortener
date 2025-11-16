@@ -25,6 +25,9 @@ func (s *Store) Save(link *model.Link) error {
 	if _, exists := s.links[link.Code]; exists {
 		return storage.ErrCodeExists
 	}
+	if link.UniqueIPs == nil {
+		link.UniqueIPs = make(map[string]struct{})
+	}
 	s.links[link.Code] = link
 	return nil
 }
@@ -46,4 +49,23 @@ func (s *Store) List() []*model.Link {
 		items = append(items, link)
 	}
 	return items
+}
+
+func (s *Store) RecordClick(code string, click model.Click) (*model.Link, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	link, ok := s.links[code]
+	if !ok {
+		return nil, storage.ErrNotFound
+	}
+
+	link.Clicks = append(link.Clicks, click)
+	if link.UniqueIPs == nil {
+		link.UniqueIPs = make(map[string]struct{})
+	}
+	if click.IP != "" {
+		link.UniqueIPs[click.IP] = struct{}{}
+	}
+	return link, nil
 }
