@@ -41,18 +41,21 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	expiresAt, err := parseExpiresAt(payload.ExpiresAt)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
 	link := &model.Link{
 		Code:        code,
 		OriginalURL: originalURL,
 		CreatedAt:   time.Now().UTC(),
+		ExpiresAt:   expiresAt,
 	}
 
-	if err := s.store.Save(link); err != nil {
-		if errors.Is(err, storage.ErrCodeExists) {
-			http.Error(w, "customAlias already in use", http.StatusBadRequest)
-			return
-		}
-		http.Error(w, "failed to store link", http.StatusInternalServerError)
+	if err := s.saveOrReplaceLink(link); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
@@ -67,6 +70,7 @@ func (s *Server) handleShorten(w http.ResponseWriter, r *http.Request) {
 		Code:        code,
 		ShortURL:    shortURL,
 		OriginalURL: originalURL,
+		ExpiresAt:   expiresAt,
 		QRCode:      qrData,
 	})
 }
@@ -84,6 +88,7 @@ func (s *Server) handleListLinks(w http.ResponseWriter, r *http.Request) {
 			Code:           link.Code,
 			OriginalURL:    link.OriginalURL,
 			CreatedAt:      link.CreatedAt,
+			ExpiresAt:      link.ExpiresAt,
 			TotalClicks:    len(link.Clicks),
 			UniqueVisitors: len(link.UniqueIPs),
 		})
@@ -92,11 +97,6 @@ func (s *Server) handleListLinks(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLinkDetails(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
 	if !strings.HasPrefix(r.URL.Path, "/api/links/") {
 		http.NotFound(w, r)
 		return
@@ -112,6 +112,10 @@ func (s *Server) handleLinkDetails(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
+	if time.Now().After(link.ExpiresAt) {
+		http.Error(w, "link has expired", http.StatusGone)
+		return
+	}
 	resp, err := buildLinkDetails(link, s.baseURL)
 	if err != nil {
 		http.Error(w, "failed to build link response", http.StatusInternalServerError)
@@ -121,11 +125,6 @@ func (s *Server) handleLinkDetails(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet && r.Method != http.MethodHead {
-		http.NotFound(w, r)
-		return
-	}
-
 	if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/" {
 		http.NotFound(w, r)
 		return
@@ -140,6 +139,10 @@ func (s *Server) handleRedirect(w http.ResponseWriter, r *http.Request) {
 	link, ok := s.store.Get(code)
 	if !ok {
 		http.NotFound(w, r)
+		return
+	}
+	if time.Now().After(link.ExpiresAt) {
+		http.Error(w, "link has expired", http.StatusGone)
 		return
 	}
 
@@ -182,10 +185,30 @@ func buildLinkDetails(link *model.Link, baseURL string) (linkDetailsResponse, er
 		ShortURL:       shortURL,
 		OriginalURL:    link.OriginalURL,
 		CreatedAt:      link.CreatedAt,
+		ExpiresAt:      link.ExpiresAt,
 		TotalClicks:    len(link.Clicks),
 		UniqueVisitors: len(link.UniqueIPs),
 		LastAccessed:   lastAccessed,
 		CountryCounts:  countryCounts,
 		QRCode:         qr,
 	}, nil
+}
+func (s *Server) saveOrReplaceLink(link *model.Link) error {
+	if err := s.store.Save(link); err == nil {
+		return nil
+	} else if !errors.Is(err, storage.ErrCodeExists) {
+		return fmt.Errorf("failed to store link: %w", err)
+	}
+
+	existing, ok := s.store.Get(link.Code)
+	if !ok {
+		return fmt.Errorf("alias conflict")
+	}
+	if time.Now().After(existing.ExpiresAt) {
+		if err := s.store.Upsert(link); err != nil {
+			return fmt.Errorf("failed to overwrite expired link: %w", err)
+		}
+		return nil
+	}
+	return errors.New("customAlias already in use")
 }

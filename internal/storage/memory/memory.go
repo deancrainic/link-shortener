@@ -32,6 +32,17 @@ func (s *Store) Save(link *model.Link) error {
 	return nil
 }
 
+func (s *Store) Upsert(link *model.Link) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if link.UniqueIPs == nil {
+		link.UniqueIPs = make(map[string]struct{})
+	}
+	s.links[link.Code] = link
+	return nil
+}
+
 func (s *Store) Get(code string) (*model.Link, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

@@ -13,6 +13,7 @@ var (
 
 type Store interface {
 	Save(link *model.Link) error
+	Upsert(link *model.Link) error
 	Get(code string) (*model.Link, bool)
 	List() []*model.Link
 	RecordClick(code string, click model.Click) (*model.Link, error)

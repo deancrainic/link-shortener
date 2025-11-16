@@ -77,6 +77,22 @@ func writeJSON(w http.ResponseWriter, status int, payload any) {
 	}
 }
 
+func parseExpiresAt(raw *string) (time.Time, error) {
+	now := time.Now().UTC()
+	defaultExpiry := now.Add(30 * 24 * time.Hour)
+	if raw == nil || strings.TrimSpace(*raw) == "" {
+		return defaultExpiry, nil
+	}
+	t, err := time.Parse(time.RFC3339, strings.TrimSpace(*raw))
+	if err != nil {
+		return time.Time{}, errors.New("expiresAt must be RFC3339 timestamp")
+	}
+	if t.Before(now) {
+		return time.Time{}, errors.New("expiresAt must be in the future")
+	}
+	return t.UTC(), nil
+}
+
 var (
 	codePattern        = regexp.MustCompile(`^[a-zA-Z0-9_-]{3,30}$`)
 	defaultGeoEndpoint = "https://ipapi.co/%s/country/"
