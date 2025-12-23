@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -221,4 +222,66 @@ func clientIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return host
+}
+
+func (s *Server) rateLimitMiddleware(next http.Handler) http.Handler {
+	if s.limiter == nil {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := clientIP(r)
+		allowed, retry := s.limiter.Allow(ip)
+		if !allowed {
+			if retry > 0 {
+				seconds := int((retry + time.Second - 1) / time.Second)
+				w.Header().Set("Retry-After", strconv.Itoa(seconds))
+			}
+			http.Error(w, "rate limit exceeded: maximum 10 requests per minute", http.StatusTooManyRequests)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+type rateLimiter struct {
+	mu      sync.Mutex
+	limit   int
+	window  time.Duration
+	clients map[string]*clientWindow
+}
+
+type clientWindow struct {
+	count   int
+	expires time.Time
+}
+
+func newRateLimiter(limit int, window time.Duration) *rateLimiter {
+	return &rateLimiter{
+		limit:   limit,
+		window:  window,
+		clients: make(map[string]*clientWindow),
+	}
+}
+
+func (rl *rateLimiter) Allow(key string) (bool, time.Duration) {
+	if rl == nil {
+		return true, 0
+	}
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	now := time.Now()
+	if entry, ok := rl.clients[key]; ok && now.Before(entry.expires) {
+		if entry.count >= rl.limit {
+			return false, time.Until(entry.expires)
+		}
+		entry.count++
+		return true, 0
+	}
+
+	rl.clients[key] = &clientWindow{
+		count:   1,
+		expires: now.Add(rl.window),
+	}
+	return true, 0
 }
