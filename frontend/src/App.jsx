@@ -1,5 +1,25 @@
 import { useState } from 'react'
 import './App.css'
+import Analytics from './components/Analytics'
+
+const toRFC3339LocalMidnight = (dateValue) => {
+  if (!dateValue) return null
+  const [year, month, day] = dateValue.split('-').map(Number)
+  if (!year || !month || !day) return null
+  const localDate = new Date(year, month - 1, day, 0, 0, 0)
+  const offsetMinutes = -localDate.getTimezoneOffset()
+  const sign = offsetMinutes >= 0 ? '+' : '-'
+  const absOffset = Math.abs(offsetMinutes)
+  const offsetHours = String(Math.floor(absOffset / 60)).padStart(2, '0')
+  const offsetMins = String(absOffset % 60).padStart(2, '0')
+  const yyyy = localDate.getFullYear()
+  const mm = String(localDate.getMonth() + 1).padStart(2, '0')
+  const dd = String(localDate.getDate()).padStart(2, '0')
+  const hh = String(localDate.getHours()).padStart(2, '0')
+  const mi = String(localDate.getMinutes()).padStart(2, '0')
+  const ss = String(localDate.getSeconds()).padStart(2, '0')
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}:${ss}${sign}${offsetHours}:${offsetMins}`
+}
 
 const buildPayload = (url, customAlias, expiresAt) => {
   const trimmedAlias = customAlias.trim()
@@ -7,7 +27,7 @@ const buildPayload = (url, customAlias, expiresAt) => {
   return {
     url: url.trim(),
     customAlias: trimmedAlias,
-    expiresAt: trimmedExpiry ? new Date(trimmedExpiry).toISOString() : null,
+    expiresAt: trimmedExpiry ? toRFC3339LocalMidnight(trimmedExpiry) : null,
   }
 }
 
@@ -25,6 +45,8 @@ function App() {
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [copiedResult, setCopiedResult] = useState(false)
+  const [analyticsRefresh, setAnalyticsRefresh] = useState(0)
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -47,6 +69,7 @@ function App() {
 
       const data = await response.json()
       setResult(data)
+      setAnalyticsRefresh((value) => value + 1)
     } catch (err) {
       setError(err.message || 'Something went wrong.')
     } finally {
@@ -102,11 +125,11 @@ function App() {
               <input
                 id="expiresAt"
                 name="expiresAt"
-                type="datetime-local"
+                type="date"
                 value={expiresAt}
                 onChange={(event) => setExpiresAt(event.target.value)}
               />
-              <p className="helper">Leave empty for the default 30 days.</p>
+              <p className="helper">Date only. Leave empty for the default 30 days.</p>
             </div>
           </div>
 
@@ -121,7 +144,7 @@ function App() {
           <section className="result">
             <div>
               <h2>Your short link is ready</h2>
-              <p className="result-url">
+              <div className="result-url-row">
                 <a
                   href={result.shortUrl}
                   target="_blank"
@@ -129,7 +152,22 @@ function App() {
                 >
                   {result.shortUrl}
                 </a>
-              </p>
+                <button
+                  className="copy"
+                  type="button"
+                  onClick={async () => {
+                    try {
+                      await navigator.clipboard?.writeText(result.shortUrl)
+                      setCopiedResult(true)
+                      window.setTimeout(() => setCopiedResult(false), 1500)
+                    } catch {
+                      setCopiedResult(false)
+                    }
+                  }}
+                >
+                  {copiedResult ? 'Copied ✓' : 'Copy'}
+                </button>
+              </div>
               <div className="result-meta">
                 <div>
                   <span>Code</span>
@@ -151,6 +189,8 @@ function App() {
             ) : null}
           </section>
         ) : null}
+
+        <Analytics formatExpiry={formatExpiry} refreshKey={analyticsRefresh} />
       </main>
     </div>
   )
