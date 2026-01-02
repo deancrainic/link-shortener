@@ -165,7 +165,7 @@ function App() {
                     }
                   }}
                 >
-                  {copiedResult ? 'Copied ✓' : 'Copy'}
+                  {copiedResult ? 'Copied ?' : 'Copy'}
                 </button>
               </div>
               <div className="result-meta">

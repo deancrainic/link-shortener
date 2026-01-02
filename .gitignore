@@ -37,6 +37,8 @@ go.work.sum
 *.cpuprofile
 *.local
 *.log
+*.db
+data.db
 /.vscode/
 /docs/.vitepress/cache
 /docs/.vitepress/.temp

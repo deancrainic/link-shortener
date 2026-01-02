@@ -7,14 +7,18 @@ import (
 	"strings"
 
 	"link-shortener/internal/api"
-	"link-shortener/internal/storage/memory"
+	"link-shortener/internal/storage/sqlite"
 )
 
 const defaultAddr = ":8080"
 const defaultBaseURL = "http://localhost:8080"
+const defaultDBPath = "data.db"
 
 func main() {
-	store := memory.New()
+	store, err := sqlite.New(dbPath())
+	if err != nil {
+		log.Fatalf("failed to initialize sqlite store: %v", err)
+	}
 	server := api.NewServer(api.Config{
 		Store:   store,
 		BaseURL: baseURL(),
@@ -40,4 +44,11 @@ func baseURL() string {
 		return strings.TrimSuffix(val, "/")
 	}
 	return defaultBaseURL
+}
+
+func dbPath() string {
+	if val := strings.TrimSpace(os.Getenv("SQLITE_PATH")); val != "" {
+		return val
+	}
+	return defaultDBPath
 }
