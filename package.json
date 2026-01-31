@@ -1,0 +1,10 @@
+{
+  "name": "link-shortner",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently \"go run ./cmd/server\" \"npm --prefix frontend run dev\""
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.1"
+  }
+}
